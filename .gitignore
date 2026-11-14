@@ -1,0 +1,16 @@
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+
+# Cloned third-party reference repos & temporary outputs
+/armnn/
+/rea/
+/out/
+
+# Editor / OS files
+.DS_Store
+.vscode/
+.idea/

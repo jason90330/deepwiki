@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DeepWiki</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #131822; --card: #161b26; --border: #252c3a;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --doc: #3fb950; --file: #a371f7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+  header { height: 50px; border-bottom: 1px solid var(--border); background: var(--panel);
+           display: flex; align-items: center; padding: 0 18px; gap: 14px; flex-shrink: 0; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; }
+  .commit-pill { font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border);
+                 padding: 2px 8px; border-radius: 999px; font-family: ui-monospace, monospace; }
+  header input { flex: 1; max-width: 380px; background: var(--bg); color: var(--text);
+                 border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+  .header-right { margin-left: auto; display: flex; gap: 8px; }
+  button { background: var(--card); color: var(--text); border: 1px solid var(--border);
+           border-radius: 6px; padding: 5px 11px; font-size: 12px; cursor: pointer; }
+  button:hover { border-color: #3b465c; }
+  button.active { border-color: var(--accent); color: var(--accent); }
+  main { flex: 1; display: grid; grid-template-columns: 270px minmax(0, 1fr) 220px; min-height: 0; }
+  aside.left { border-right: 1px solid var(--border); background: var(--panel); overflow-y: auto; padding: 12px; }
+  aside.right { border-left: 1px solid var(--border); background: var(--bg); overflow-y: auto; padding: 18px 14px; }
+  aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+             margin: 14px 6px 6px; }
+  .nav-item { display: block; width: 100%; text-align: left; background: none; border: none;
+              color: var(--text); padding: 5px 8px; border-radius: 5px; font-size: 13px; cursor: pointer;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav-item.child { padding-left: 20px; color: var(--muted); font-size: 12.5px; }
+  .nav-item:hover { background: rgba(255,255,255,.05); color: var(--text); }
+  .nav-item.active { background: rgba(88,166,255,.14); color: var(--accent); font-weight: 500; }
+  .toc-link { display: block; color: var(--muted); text-decoration: none; font-size: 12px;
+              padding: 3px 6px; border-left: 2px solid transparent; margin: 2px 0; }
+  .toc-link.h3 { padding-left: 14px; font-size: 11.5px; }
+  .toc-link:hover { color: var(--text); border-left-color: var(--accent); }
+  #doc-pane { overflow-y: auto; padding: 28px 44px 96px; line-height: 1.7; max-width: 1180px; width: 100%; margin: 0 auto; }
+  #doc-pane h1 { margin-top: 0; font-size: 28px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+  #doc-pane h2 { margin-top: 30px; font-size: 19px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  #doc-pane h3 { margin-top: 22px; font-size: 15.5px; color: #c9d1d9; }
+  #doc-pane a { color: var(--accent); text-decoration: none; }
+  #doc-pane a:hover { text-decoration: underline; }
+  #doc-pane code { background: #1c2230; padding: 2px 5px; border-radius: 4px; font-size: 12.5px; }
+  #doc-pane pre { background: #161b26; border: 1px solid var(--border); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  #doc-pane pre code { background: none; padding: 0; }
+  #doc-pane table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13px; }
+  #doc-pane th, #doc-pane td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
+  #doc-pane th { background: var(--panel); }
+  #doc-pane blockquote { border-left: 3px solid var(--accent); margin: 12px 0; padding: 4px 14px; color: var(--muted); }
+  details.sources-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+                        padding: 8px 12px; margin-bottom: 18px; font-size: 12.5px; }
+  details.sources-box summary { cursor: pointer; color: var(--muted); font-weight: 500; }
+  .source-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: #1c2230;
+          border: 1px solid var(--border); color: #c9d1d9; text-decoration: none; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .diagram-card { background: #111622; border: 1px solid var(--border); border-radius: 10px;
+                  margin: 18px 0; overflow: hidden; display: flex; flex-direction: column; }
+  .diagram-card.fullscreen { position: fixed; inset: 16px; z-index: 60; margin: 0;
+                             box-shadow: 0 24px 64px rgba(0,0,0,.85); border-color: var(--accent); }
+  .diagram-bar { display: flex; align-items: center; gap: 6px; padding: 7px 12px;
+                 border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--muted); flex-shrink: 0; }
+  .diagram-bar .spacer { flex: 1; }
+  .diagram-hint { font-size: 11px; color: var(--muted); margin-right: 6px; }
+  .diagram-view { padding: 20px; overflow: auto; text-align: center; cursor: grab;
+                  min-height: 220px; max-height: 680px; flex: 1; }
+  .diagram-card.fullscreen .diagram-view { max-height: none; }
+  .diagram-view.dragging { cursor: grabbing; user-select: none; }
+  .diagram-inner { display: inline-block; min-width: min-content; }
+  .diagram-inner svg { max-width: none !important; height: auto !important; display: block; margin: 0 auto; }
+  /* Graph Modal */
+  #graph-modal { position: fixed; inset: 50px 0 0 0; background: rgba(11,13,18,.97); z-index: 40;
+                 display: none; flex-direction: column; }
+  #graph-modal.open { display: flex; }
+  #graph-toolbar { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+                   display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  #graph-canvas { flex: 1; width: 100%; height: 100%; cursor: grab; display: block; }
+  #graph-tooltip { position: absolute; pointer-events: none; background: #1e2230; border: 1px solid var(--border);
+                   padding: 5px 8px; border-radius: 5px; font-size: 12px; display: none; z-index: 50; }
+  .legend { margin-left: auto; display: flex; gap: 12px; font-size: 11px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+  /* Bottom Ask Bar */
+  #ask-bar { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: min(640px, 90vw);
+             background: var(--panel); border: 1px solid #354055; border-radius: 12px; padding: 8px 10px;
+             box-shadow: 0 12px 32px rgba(0,0,0,.55); z-index: 30; }
+  #ask-row { display: flex; gap: 8px; align-items: center; }
+  #ask-input { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+               border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+  #ask-drawer { max-height: 280px; overflow-y: auto; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+                padding-bottom: 8px; display: none; font-size: 12.5px; }
+  .ask-hit { padding: 6px 8px; border-radius: 6px; margin: 4px 0; background: var(--bg); border: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="wiki-title">DeepWiki</h1>
+  <span id="commit-pill" class="commit-pill"></span>
+  <input id="search-box" type="search" placeholder="Filter pages / search…" />
+  <div class="header-right">
+    <button id="toggle-graph">Interactive Graph</button>
+  </div>
+</header>
+<main>
+  <aside class="left">
+    <div id="search-results"></div>
+    <h2 id="llm-heading">DeepWiki (LLM-Wiki)</h2>
+    <div id="llm-nav"></div>
+    <h2 id="code-heading">Wiki Pages</h2>
+    <div id="code-nav"></div>
+  </aside>
+  <section id="doc-pane"><p style="color:var(--muted)">Loading…</p></section>
+  <aside class="right">
+    <h2>On this page</h2>
+    <div id="page-toc"></div>
+  </aside>
+</main>
+
+<div id="graph-modal">
+  <div id="graph-toolbar">
+    <button id="mode-overview" class="active">Pages + Docs</button>
+    <button id="mode-files">Focused + Files</button>
+    <button id="reset-zoom">Reset</button>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--accent)"></i>Page</span>
+      <span><i class="dot" style="background:var(--doc)"></i>Doc</span>
+      <span><i class="dot" style="background:#f0883e"></i>Symbol</span>
+      <span><i class="dot" style="background:var(--file)"></i>File</span>
+    </div>
+    <button id="close-graph">Close</button>
+  </div>
+  <canvas id="graph-canvas"></canvas>
+  <div id="graph-tooltip"></div>
+</div>
+
+<div id="ask-bar">
+  <div id="ask-drawer"></div>
+  <div id="ask-row">
+    <input id="ask-input" type="text" placeholder="Ask about this repository (via llm-wiki RAG)…" />
+    <button id="ask-btn">Ask</button>
+  </div>
+</div>
+
+<script>
+if (window.mermaid) {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: "dark",
+    themeVariables: {
+      fontSize: "16px",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      primaryColor: "#1e293b",
+      primaryTextColor: "#f8fafc",
+      primaryBorderColor: "#475569",
+      lineColor: "#94a3b8",
+      secondaryColor: "#0f172a",
+      tertiaryColor: "#1e2230"
+    },
+    flowchart: { useMaxWidth: false, htmlLabels: true, nodeSpacing: 45, rankSpacing: 55, padding: 16 },
+    sequence: { useMaxWidth: false, width: 180, height: 55, messageFontSize: 15, actorFontSize: 15 },
+    class: { useMaxWidth: false }
+  });
+}
+
+const state = { catalog: null, graph: null, currentId: null, graphMode: "overview",
+                simNodes: [], simEdges: [], cam: { x: 0, y: 0, z: 1 }, hover: null };
+
+async function api(url) { const r = await fetch(url); return r.json(); }
+
+function renderMarkdown(md, sourceUrl) {
+  const base = sourceUrl ? sourceUrl.replace(/\/$/, "") : null;
+  // Protect fenced code blocks before transforming [[wikilinks]] and Sources: lines
+  const fences = [];
+  let text = md.replace(/```[\s\S]*?```/g, m => { fences.push(m); return `@@FENCE_${fences.length - 1}@@`; });
+
+  // Convert [[id|label]] into in-app page links
+  text = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, id, label) =>
+    `[${label || id}](#page/${encodeURIComponent(id.trim())})`);
+
+  // Convert `Sources: [file:10-20](), ...` into DeepWiki source pill bars
+  text = text.replace(/^Sources:\s*(.+)$/gm, (_, listStr) => {
+    const pills = listStr.replace(/\[([^\]]+)\]\([^)]*\)/g, (__, ref) => {
+      const m = ref.match(/^([^:]+?)(?::(\d+)(?:-(\d+))?)?$/);
+      if (base && m) {
+        const [, p, l1, l2] = m;
+        const hash = l1 ? (l2 ? `#L${l1}-L${l2}` : `#L${l1}`) : "";
+        return `<a class="chip" target="_blank" href="${base}/${p}${hash}">${ref}</a>`;
+      }
+      return `<span class="chip">${ref}</span>`;
+    });
+    return `<div class="source-chips"><span style="font-size:11.5px;color:var(--muted);align-self:center;margin-right:4px">Sources:</span>${pills}</div>`;
+  });
+
+  // Restore fenced code blocks
+  text = text.replace(/@@FENCE_(\d+)@@/g, (_, i) => fences[Number(i)]);
+  let html = window.marked ? marked.parse(text) : `<pre>${text}</pre>`;
+  if (base) {
+    html = html.replace(/href="(?!https?:|#|\/)([^"]+)"/g, (_, rel) => ` target="_blank" href="${base}/${rel}"`);
+  }
+  return html;
+}
+
+async function loadPage(id) {
+  state.currentId = id;
+  document.querySelectorAll(".nav-item").forEach(el =>
+    el.classList.toggle("active", el.dataset.id === id || el.dataset.id === "llm:" + id));
+  const data = await api(`/api/page/${encodeURIComponent(id)}`);
+  const pane = document.getElementById("doc-pane");
+  if (data.error) { pane.innerHTML = `<p>Page not found: ${id}</p>`; return; }
+
+  const hasDetails = /<details[\s>]/i.test(data.markdown);
+  let topBox = "";
+  const srcs = data.meta?.sources || [];
+  if (srcs.length && !hasDetails) {
+    const base = data.meta?.source_url ? data.meta.source_url.replace(/\/$/, "") : null;
+    const chips = srcs.map(s => base && !s.startsWith("raw/")
+      ? `<a class="chip" target="_blank" href="${base}/${s}">${s}</a>`
+      : `<span class="chip">${s}</span>`).join("");
+    topBox = `<details class="sources-box"><summary>Relevant source files (${srcs.length})</summary><div class="source-chips">${chips}</div></details>`;
+  }
+
+  pane.innerHTML = topBox + renderMarkdown(data.markdown, data.meta?.source_url);
+  pane.querySelectorAll('a[href^="#page/"]').forEach(a => {
+    a.onclick = e => { e.preventDefault(); loadPage(decodeURIComponent(a.getAttribute("href").slice(6))); };
+  });
+
+  // Wrap Mermaid diagrams with natural 1:1 SVG sizing, drag-to-pan, wheel zoom & fullscreen
+  if (window.mermaid) {
+    const blocks = [...pane.querySelectorAll("pre code.language-mermaid")];
+    const cards = [];
+    for (const code of blocks) {
+      const card = document.createElement("div"); card.className = "diagram-card";
+      card.innerHTML = `<div class="diagram-bar"><span>Diagram</span><span class="spacer"></span>
+        <span class="diagram-hint">Drag to pan · Ctrl+Wheel to zoom</span>
+        <button class="z-fit" title="Fit diagram to card width">Fit</button>
+        <button class="z-out" title="Zoom out">−</button>
+        <button class="z-reset" title="Reset to 100% readable size">100%</button>
+        <button class="z-in" title="Zoom in">+</button>
+        <button class="z-full" title="Toggle fullscreen">⛶ Expand</button></div>
+        <div class="diagram-view"><div class="diagram-inner"><div class="mermaid"></div></div></div>`;
+      card.querySelector(".mermaid").textContent = code.textContent;
+      code.parentElement.replaceWith(card);
+      cards.push(card);
+    }
+    await mermaid.run({ nodes: pane.querySelectorAll(".mermaid") });
+
+    for (const card of cards) {
+      const svg = card.querySelector(".mermaid svg");
+      if (!svg) continue;
+      const view = card.querySelector(".diagram-view");
+      const resetBtn = card.querySelector(".z-reset");
+      const fullBtn = card.querySelector(".z-full");
+      const vb = (svg.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+      const vbW = (vb.length === 4 && vb[2] > 0) ? vb[2] : (svg.getBoundingClientRect().width || 760);
+      // Ensure 100% zoom always renders at natural 1:1 readable SVG coordinate width (at least 640px)
+      const naturalW = Math.max(vbW * 1.15, 640);
+      svg.removeAttribute("width");
+      svg.style.maxWidth = "none";
+      let zoom = 1;
+      const applyZoom = (newZoom) => {
+        zoom = Math.min(4.0, Math.max(0.35, newZoom));
+        svg.style.width = `${Math.round(naturalW * zoom)}px`;
+        svg.style.height = "auto";
+        resetBtn.textContent = `${Math.round(zoom * 100)}%`;
+      };
+      applyZoom(1);
+
+      card.querySelector(".z-in").onclick = () => applyZoom(zoom + 0.25);
+      card.querySelector(".z-out").onclick = () => applyZoom(zoom - 0.25);
+      resetBtn.onclick = () => applyZoom(1);
+      card.querySelector(".z-fit").onclick = () => {
+        const availW = Math.max(320, view.clientWidth - 48);
+        applyZoom(availW / naturalW);
+      };
+      fullBtn.onclick = () => {
+        const isFull = card.classList.toggle("fullscreen");
+        fullBtn.textContent = isFull ? "✕ Close" : "⛶ Expand";
+      };
+
+      // Drag-to-pan inside .diagram-view
+      let pan = null;
+      view.addEventListener("mousedown", e => {
+        if (e.button !== 0) return;
+        pan = { x: e.clientX, y: e.clientY, sl: view.scrollLeft, st: view.scrollTop };
+        view.classList.add("dragging");
+      });
+      window.addEventListener("mousemove", e => {
+        if (!pan) return;
+        view.scrollLeft = pan.sl - (e.clientX - pan.x);
+        view.scrollTop = pan.st - (e.clientY - pan.y);
+      });
+      window.addEventListener("mouseup", () => {
+        if (pan) { pan = null; view.classList.remove("dragging"); }
+      });
+      view.addEventListener("wheel", e => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          applyZoom(zoom * (e.deltaY < 0 ? 1.15 : 0.87));
+        }
+      }, { passive: false });
+    }
+  }
+
+  // Build right-hand "On this page" TOC
+  const toc = document.getElementById("page-toc");
+  toc.innerHTML = "";
+  pane.querySelectorAll("h2, h3").forEach((h, i) => {
+    const anchor = "sec-" + i;
+    h.id = anchor;
+    const a = document.createElement("a");
+    a.className = "toc-link " + h.tagName.toLowerCase();
+    a.href = "#" + anchor;
+    a.textContent = h.textContent;
+    a.onclick = e => { e.preventDefault(); h.scrollIntoView({ behavior: "smooth" }); };
+    toc.appendChild(a);
+  });
+  pane.scrollTop = 0;
+}
+
+function buildNav() {
+  const { title, commit, pages, llm_pages } = state.catalog;
+  document.getElementById("wiki-title").textContent = title;
+  document.getElementById("commit-pill").textContent = commit ? commit.slice(0, 8) : "local";
+  const mkBtn = (id, label, isChild) => {
+    const b = document.createElement("button");
+    b.className = "nav-item" + (isChild ? " child" : "");
+    b.dataset.id = id; b.textContent = label; b.onclick = () => loadPage(id);
+    return b;
+  };
+  const ln = document.getElementById("llm-nav"); ln.innerHTML = "";
+  document.getElementById("llm-heading").style.display = llm_pages.length ? "block" : "none";
+  llm_pages.forEach(p => ln.appendChild(mkBtn(p.id, p.title, Boolean(p.parent))));
+  const cn = document.getElementById("code-nav"); cn.innerHTML = "";
+  pages.forEach(p => cn.appendChild(mkBtn(p.id, p.title, Boolean(p.parent))));
+}
+
+// --- Canvas Force Graph (Modal) ---
+function buildSim() {
+  if (!state.graph) return;
+  const g = state.graph;
+  let nodes = g.nodes.filter(n => n.type !== "file");
+  if (state.graphMode === "files" && state.currentId) {
+    const pid = "page:" + state.currentId.replace(/^llm:/, "");
+    const neigh = new Set([pid]);
+    g.edges.forEach(e => { if (e.source === pid) neigh.add(e.target); if (e.target === pid) neigh.add(e.source); });
+    nodes = g.nodes.filter(n => n.type !== "file" || neigh.has(n.id)).slice(0, 140);
+  }
+  const keep = new Set(nodes.map(n => n.id));
+  const simNodes = nodes.map((n, i) => {
+    const a = (i / Math.max(nodes.length, 1)) * Math.PI * 2;
+    const r = n.type === "page" ? 130 : n.type === "doc" ? 230 : 280;
+    return { ...n, x: Math.cos(a) * r, y: Math.sin(a) * r, vx: 0, vy: 0 };
+  });
+  const byId = Object.fromEntries(simNodes.map(n => [n.id, n]));
+  const simEdges = g.edges.filter(e => keep.has(e.source) && keep.has(e.target))
+    .map(e => ({ source: byId[e.source], target: byId[e.target], type: e.type }));
+  state.simNodes = simNodes; state.simEdges = simEdges;
+  for (let s = 0; s < 120; s++) tickSim();
+  drawGraph();
+}
+
+function tickSim() {
+  const ns = state.simNodes, es = state.simEdges;
+  for (let i = 0; i < ns.length; i++) {
+    for (let j = i + 1; j < ns.length; j++) {
+      let dx = ns[j].x - ns[i].x, dy = ns[j].y - ns[i].y, f = 1400 / (dx*dx + dy*dy + 25);
+      ns[i].vx -= dx*f; ns[i].vy -= dy*f; ns[j].vx += dx*f; ns[j].vy += dy*f;
+    }
+    ns[i].vx -= ns[i].x * 0.015; ns[i].vy -= ns[i].y * 0.015;
+  }
+  for (const e of es) {
+    let dx = e.target.x - e.source.x, dy = e.target.y - e.source.y, d = Math.hypot(dx, dy) || 1, f = (d - 95) * 0.04;
+    e.source.vx += (dx/d)*f; e.source.vy += (dy/d)*f; e.target.vx -= (dx/d)*f; e.target.vy -= (dy/d)*f;
+  }
+  for (const n of ns) { n.x += n.vx*0.4; n.y += n.vy*0.4; n.vx *= 0.6; n.vy *= 0.6; }
+}
+
+function drawGraph() {
+  const c = document.getElementById("graph-canvas"), ctx = c.getContext("2d");
+  const rect = c.getBoundingClientRect();
+  if (!rect.width) return;
+  if (c.width !== rect.width || c.height !== rect.height) { c.width = rect.width; c.height = rect.height; }
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.save();
+  ctx.translate(c.width / 2 + state.cam.x, c.height / 2 + state.cam.y);
+  ctx.scale(state.cam.z, state.cam.z);
+  for (const e of state.simEdges) {
+    ctx.strokeStyle = e.type === "documents" ? "rgba(63,185,80,.35)" : "rgba(148,163,184,.22)";
+    ctx.lineWidth = 1 / state.cam.z;
+    ctx.beginPath(); ctx.moveTo(e.source.x, e.source.y); ctx.lineTo(e.target.x, e.target.y); ctx.stroke();
+  }
+  for (const n of state.simNodes) {
+    ctx.fillStyle = n.type === "page" ? "#58a6ff" : n.type === "doc" ? "#3fb950" : n.type === "symbol" ? "#f0883e" : "#a371f7";
+    const r = n.type === "page" ? 7 : n.type === "doc" ? 5.5 : n.type === "symbol" ? 4.5 : 3.5;
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
+    if (n.type !== "file" || state.hover === n) {
+      ctx.fillStyle = "#cbd5e1"; ctx.font = `${11 / state.cam.z}px sans-serif`;
+      ctx.fillText(n.label.slice(0, 26), n.x + r + 3, n.y + 3);
+    }
+  }
+  ctx.restore();
+}
+
+function initGraphEvents() {
+  const c = document.getElementById("graph-canvas"), tip = document.getElementById("graph-tooltip");
+  let drag = null;
+  const toWorld = e => {
+    const r = c.getBoundingClientRect();
+    return { x: (e.clientX - r.left - c.width/2 - state.cam.x)/state.cam.z,
+             y: (e.clientY - r.top - c.height/2 - state.cam.y)/state.cam.z };
+  };
+  c.onmousedown = e => { drag = { x: e.clientX, y: e.clientY, cx: state.cam.x, cy: state.cam.y, moved: false }; };
+  window.onmouseup = () => {
+    if (drag && !drag.moved && state.hover?.type === "page") {
+      document.getElementById("graph-modal").classList.remove("open");
+      loadPage(state.hover.id.slice(5));
+    }
+    drag = null;
+  };
+  c.onmousemove = e => {
+    if (drag) {
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      state.cam.x = drag.cx + dx; state.cam.y = drag.cy + dy; drawGraph(); return;
+    }
+    const w = toWorld(e);
+    state.hover = state.simNodes.find(n => Math.hypot(n.x - w.x, n.y - w.y) < 10/state.cam.z) || null;
+    tip.style.display = state.hover ? "block" : "none";
+    if (state.hover) { tip.textContent = `[${state.hover.type}] ${state.hover.label}`;
+      tip.style.left = (e.offsetX + 12) + "px"; tip.style.top = (e.offsetY + 12) + "px"; }
+    drawGraph();
+  };
+  c.onwheel = e => { e.preventDefault(); state.cam.z *= e.deltaY < 0 ? 1.12 : 0.89; drawGraph(); };
+}
+
+document.getElementById("toggle-graph").onclick = () => {
+  document.getElementById("graph-modal").classList.add("open"); buildSim();
+};
+document.getElementById("close-graph").onclick = () => document.getElementById("graph-modal").classList.remove("open");
+document.getElementById("mode-overview").onclick = e => {
+  state.graphMode = "overview"; e.target.classList.add("active");
+  document.getElementById("mode-files").classList.remove("active"); buildSim();
+};
+document.getElementById("mode-files").onclick = e => {
+  state.graphMode = "files"; e.target.classList.add("active");
+  document.getElementById("mode-overview").classList.remove("active"); buildSim();
+};
+document.getElementById("reset-zoom").onclick = () => { state.cam = { x: 0, y: 0, z: 1 }; drawGraph(); };
+
+let searchTimer;
+document.getElementById("search-box").oninput = e => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim(), box = document.getElementById("search-results");
+  if (!q) { box.innerHTML = ""; return; }
+  searchTimer = setTimeout(async () => {
+    const { hits } = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    box.innerHTML = "<h2>Search</h2>" + (hits.length ? "" : "<p style='color:var(--muted);font-size:12px;margin:6px'>No matches</p>");
+    hits.forEach(h => {
+      const b = document.createElement("button"); b.className = "nav-item";
+      b.textContent = `[${h.scope}] ${h.title}`;
+      b.onclick = () => { if (!h.path.startsWith("raw/")) loadPage(h.scope === "llm-wiki" ? "llm:" + h.id : h.id); };
+      box.appendChild(b);
+    });
+  }, 180);
+};
+
+async function runAsk() {
+  const q = document.getElementById("ask-input").value.trim();
+  const drawer = document.getElementById("ask-drawer");
+  if (!q) { drawer.style.display = "none"; return; }
+  const { hits } = await api(`/api/ask?q=${encodeURIComponent(q)}`);
+  drawer.style.display = "block";
+  if (!hits.length) { drawer.innerHTML = "<p style='color:var(--muted)'>No matching wiki/code entries.</p>"; return; }
+  drawer.innerHTML = `<div style="display:flex;justify-content:space-between;margin-bottom:4px"><strong>Results via llm-wiki RAG</strong><a href="#" id="close-ask" style="color:var(--muted)">Hide</a></div>` +
+    hits.slice(0, 5).map(h => `<div class="ask-hit">
+      <div><strong>${h.title}</strong> <span class="badge">${h.scope} · ${h.score}</span></div>
+      <div style="color:var(--muted);margin-top:3px">${h.snippet.slice(0, 220).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}…</div>
+    </div>`).join("");
+  document.getElementById("close-ask").onclick = e => { e.preventDefault(); drawer.style.display = "none"; };
+}
+document.getElementById("ask-btn").onclick = runAsk;
+document.getElementById("ask-input").onkeydown = e => { if (e.key === "Enter") runAsk(); };
+
+(async () => {
+  state.catalog = await api("/api/catalog");
+  state.graph = await api("/api/graph");
+  buildNav();
+  initGraphEvents();
+  const first = state.catalog.llm_pages[0]?.id || state.catalog.pages[0]?.id;
+  if (first) loadPage(first);
+})();
+</script>
+</body>
+</html>
