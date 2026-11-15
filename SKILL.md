@@ -1,133 +1,153 @@
 ---
 name: deepwiki-generator
 description: >-
-  Generate DeepWiki-grade multi-page documentation, architecture diagrams, and interactive
-  knowledge graphs by dynamically linking an already-indexed codebase-memory-mcp project
-  with an existing llm-wiki collection or HTTP/Qdrant RAG collection. Use when the user
-  provides a codebase-memory-mcp index name and an llm-wiki or RAG collection and wants to
-  link code symbols/subsystems with documents to generate or update a DeepWiki.
+  Generate DeepWiki-grade (v1.9.9.5) multi-page documentation, architecture diagrams,
+  and interactive knowledge graphs by dynamically linking a git repository, an already-indexed
+  codebase-memory-mcp (CBM) code graph, and an existing llm-wiki collection or HTTP/Qdrant RAG
+  collection. Optimized for local LLMs such as DeepSeek V4 Flash 0731 as well as deterministic
+  zero-API execution.
 ---
 
-# DeepWiki Generator & Dynamic Knowledge Linker
+# DeepWiki Generator & 3-Source Knowledge Linker (`git` + `CBM` + `llm-wiki`)
 
 ## Overview
 
-`deepwiki-generator` turns an already-indexed **`codebase-memory-mcp` code graph** plus an existing **`llm-wiki` collection** (Karpathy's 3-layer `raw/` + `wiki/` + `AGENTS.md` architecture) or **HTTP/Qdrant RAG collection** into a complete, interactive **DeepWiki**:
+`deepwiki-generator` reproduces the architecture of **DeepWiki v1.9.9.5** (reverse-engineered via `rea` from `https://deepwiki.com/pytorch/executorch` and `https://deepwiki.com/ARM-software/armnn`) by dynamically fusing **three complementary knowledge sources**:
 
-1. **Code Graph Extraction (`structure.json`)**: Pulls `Class`, `Struct`, `Interface`, `Function`, and `Method` nodes plus `CALLS` / `IMPORTS` / `INHERITS` edges from `codebase-memory-mcp`, and clusters files into Louvain architectural communities.
-2. **2-Level DeepWiki Outline (`outline.json`)**: Plans a hierarchical numbered page tree (`1`, `1.1`, `1.2`, `2`, `2.1`...) matching DeepWiki's navigation structure.
-3. **3-Way Dynamic Knowledge Linking (`knowledge_links.json` + `graph.json`)**:
-   - **Entity Linking (`doc_to_symbols`, `doc_to_files`)**: Matches exact code symbols (`INetwork`, `IOptimizedNetwork`, `LoadedNetwork`, `WorkloadFactory`, etc.) and file paths mentioned inside `llm-wiki` or RAG chunks to their `codebase-memory-mcp` definitions (`[file:start-end]()`).
-   - **Lexical + 1-Hop Graph Expansion (`page_to_docs`)**: Queries `WikiRAG` (BM25 + 1-hop `[[wikilink]]` traversal) and/or an HTTP/Qdrant RAG endpoint per subsystem page, boosting documents that share code symbols with the subsystem.
-   - **Bridge Symbol & Coupling Discovery (`page_to_bridges`)**: Identifies high fan-in/fan-out bridge classes/functions and cross-subsystem call/import weights.
-4. **DeepWiki Synthesis & Interactive Viewer (`wiki/*.md`, `index.md`, `log.md`, `serve`)**:
-   - Produces or enriches every `wiki/<id>.md` page with YAML frontmatter, `<details><summary>Relevant source files</summary>`, multi-diagram Mermaid blocks (`graph TD`, `classDiagram`, `sequenceDiagram`), `Sources: [file:start-end]()` citations, and a `## Dynamic Knowledge Links (Code Graph ↔ LLM-Wiki / RAG)` table.
-   - Serves a 3-column DeepWiki web UI with natural-size 16px Mermaid diagrams (Pan, Ctrl+Wheel Zoom, Fit, Fullscreen) and an interactive force-directed graph modal (`Page`, `Doc`, `Symbol`, `File`).
+1. **`git` Repository Working Tree**: Directory hierarchy, build files (`CMakeLists.txt`, `targets.bzl`, `BUCK`, `pyproject.toml`, `.fbs`), commit history, and exact source code slices (`read_source_snippet` at `file:start-end`).
+2. **`codebase-memory-mcp` (CBM) Code Graph**: Indexed `Class`, `Struct`, `Interface`, `Function`, and `Method` symbols with exact line spans (`start_line`–`end_line`), `INHERITS` hierarchies, `CALLS`/`IMPORTS` edges, fan-in/fan-out centrality, and Louvain communities.
+3. **`llm-wiki` Collection (or HTTP/Qdrant RAG)**: Karpathy's 3-layer knowledge base (`raw/` immutable official docs + `wiki/` synthesized pages + `AGENTS.md` schema) retrieved via BM25 + 1-hop `[[wikilink]]` graph expansion.
 
-## Dependencies
+It supports **two execution modes**:
+- **Deterministic + Agentic Packet Mode (Default)**: Generates a complete, lint-clean DeepWiki deterministically, and exports a compact Repo Dossier (`wiki/.packets/_repo_dossier.md`) plus per-page 3-Source Context Packets (`wiki/.packets/<page-id>.md`, `< 10 KB` each) so an agent (such as **`deepseek-v4-flash-0731`**) can author or refine pages without ever overflowing its context window.
+- **Direct Local LLM Mode (`--llm-base-url` / `--llm-model`)**: Connects directly to a local OpenAI-compatible endpoint (e.g., `deepseek-v4-flash-0731` via vLLM / SGLang / Ollama / llama.cpp) using DeepWiki v1.9.9.5's reverse-engineered `OUTLINE_SYSTEM_PROMPT` and `PAGE_SYSTEM_PROMPT`.
 
-- **`codebase-memory-mcp`**: Binary installed at `/home/jason/.local/opt/cbm/codebase-memory-mcp` (auto-discovered by `wikigen.cbm.find_binary()`).
-- **`wikigen` package**: Located at `/home/jason/Project/deepwiki/wikigen`.
+---
 
-## Quick Start
+## Reverse-Engineered DeepWiki v1.9.9.5 Architecture (`rea` Spec)
 
-Given an existing `codebase-memory-mcp` project (e.g., `home-jason-Project-deepwiki-armnn`) and an `llm-wiki` directory (e.g., `/home/jason/Project/deepwiki/llm-wiki`):
+Every generated DeepWiki adheres to the 5 structural invariants of `deepwiki.com` (v1.9.9.5):
+
+1. **Canonical Lifecycle Outline Taxonomy (`wiki/outline.json`)**:
+   - Always begins with **`1. Overview`** (`1.1 Getting Started`, `1.2 High-Level / Export API`) and **`2. Build System and Infrastructure`**, followed by core compiler/IR/graph subsystems, quantization/optimization, pluggable hardware backends (with an `Other Backends` consolidation page so no chapter exceeds 8 children), model/application verticals, **`Testing and CI/CD Infrastructure`**, **`Runtime Execution`**, **`Platform Extensions`**, and concludes with **`Glossary`**.
+2. **Four Distinct Page Archetypes**:
+   - **Archetype A — `1-overview`**: Repository statistics, full-system component map (`flowchart TD`), `Natural Language Space ↔ Code Entity Space` bridge diagram, core class hierarchy (`classDiagram`), subsystem navigation matrix, and entry points.
+   - **Archetype B — Parent Hub Pages (`2`, `3`, `5`, `8`...)**: `## Purpose and Scope` followed by one numbered section and dedicated Mermaid architecture diagram per child subsystem page (`For detailed technical specifications, see [[child-id|Child Title]]`).
+   - **Archetype C — Leaf Technical Spec Pages (`1.1`, `3.1`, `8.1`...)**: `## Purpose and Scope`, numbered `## 1..5` sections separated by horizontal rules (`---`), **4 Mermaid diagrams** (`Natural Language Space ↔ Code Entity Space` `graph LR`, subsystem `flowchart TD`, `classDiagram` with real methods & inheritance, and `sequenceDiagram` from real `CALLS` edges), grounded `git` source code blocks, API signature tables, and `## Dynamic Knowledge Links`.
+   - **Archetype D — `Glossary` (`10-glossary` / `*-glossary`)**: Domain vocabulary, abbreviations, and binary formats mapped directly to `Code Entity Space` classes/structs with `graph LR` mapping diagrams.
+3. **Inline Split GitHub Citation Pills (`[path/to/file.ext:start-end]()`)**:
+   - Every technical claim in prose, tables, and section `Sources:` footers uses `[file:start-end]()` citations, which the Web UI renders as DeepWiki's iconic split GitHub pill badge (`path/to/file.ext | start-end`) linking to `#Lstart-Lend`.
+
+---
+
+## ⚠️ Critical Rules for `deepseek-v4-flash-0731` & Other LLM Agents
+
+1. **NEVER read `structure.json`, `graph.json`, or `knowledge_links.json` directly into your context window.**
+   - On large repositories (e.g., `pytorch/executorch` with 521k nodes or `ARM-software/armnn` with 23k nodes), `structure.json` is **15–45 MB**. Reading it directly will overflow your context window.
+   - Instead, ALWAYS read the compact **Repo Dossier** (`wiki/.packets/_repo_dossier.md`) or **Single-Page Context Packet** (`wiki/.packets/<page-id>.md`) via `deepwiki_cli.py dossier` and `deepwiki_cli.py packet`.
+2. **ALWAYS run `build` first, and ALWAYS run `validate` before finishing.**
+   - Do NOT finish until `validate` outputs `"passed": true`.
+3. **Ground every claim in `git` + `CBM` + `llm-wiki` facts from the Page Packet.**
+   - Never invent file paths, line numbers, class names, or `[[wikilinks]]`. Use the pre-verified `[file:start-end]()` ranges, `git` code snippets, and Mermaid diagrams in `wiki/.packets/<page-id>.md`.
+
+---
+
+## Standard 4-Step Workflow for Any Repository / Knowledge Collection
+
+### Step 1: Verify or Prepare the `llm-wiki` 3-Layer Directory
+Ensure `<wiki-dir>` contains:
+- `<wiki-dir>/raw/<project>/`: Official markdown/rst/doxygen documentation (`README.md`, `docs/**/*.md`, `*.rst`, `*.dox`).
+- `<wiki-dir>/wiki/`: Output directory for synthesized DeepWiki pages.
+- `<wiki-dir>/AGENTS.md`: Layer 3 schema file (copied from `llm-wiki/AGENTS.md` if creating a new workspace).
+
+### Step 2: Run `build` (3-Source Extraction, Dynamic Linking & Page Synthesis)
 
 ```bash
-python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py build \
-  --project home-jason-Project-deepwiki-armnn \
-  --out-dir /home/jason/Project/deepwiki/llm-wiki \
-  --llm-wiki /home/jason/Project/deepwiki/llm-wiki \
-  --source-url https://github.com/ARM-software/armnn/blob/branches/armnn_24_11 \
-  --output /home/jason/Project/deepwiki/llm-wiki/wiki/link_summary.json
-```
-
-Or directly via the `wikigen` module:
-
-```bash
-cd /home/jason/Project/deepwiki
-python3 -m wikigen link \
-  -p home-jason-Project-deepwiki-armnn \
-  -o llm-wiki \
-  --llm-wiki llm-wiki \
-  --source-url https://github.com/ARM-software/armnn/blob/branches/armnn_24_11
-```
-
-## Utility Scripts
-
-All commands use `/home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py` and write structured JSON results to `--output`.
-
-### 1. `build` — Dynamically Link Code Graph + LLM-Wiki / RAG & Generate DeepWiki
-
-Links a `codebase-memory-mcp` project index with an `llm-wiki` workspace and/or an HTTP/Qdrant RAG server:
-
-```bash
-# With llm-wiki collection:
+# Mode A: Deterministic 3-Source Build (Zero External API Required)
 python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py build \
   --project <cbm-project-name> \
-  --out-dir <path-to-llm-wiki> \
-  --llm-wiki <path-to-llm-wiki> \
+  --out-dir <path-to-wiki-dir> \
+  --llm-wiki <path-to-wiki-dir> \
+  --repo <path-to-git-repo> \
   --source-url <github-or-gitlab-blob-base-url> \
-  --output <path-to-summary.json>
+  --regenerate \
+  --output <path-to-wiki-dir>/wiki/site_data.json
 
-# With HTTP / Qdrant RAG collection (e.g. ~/Project/rag on :8005 or Qdrant on :6333):
+# Mode B: With Local DeepSeek V4 Flash 0731 (OpenAI-Compatible Endpoint)
 python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py build \
   --project <cbm-project-name> \
-  --out-dir <path-to-output-wiki> \
-  --rag-url http://127.0.0.1:8005 \
-  --rag-collection <collection-name> \
-  --output <path-to-summary.json>
+  --out-dir <path-to-wiki-dir> \
+  --llm-wiki <path-to-wiki-dir> \
+  --repo <path-to-git-repo> \
+  --source-url <github-or-gitlab-blob-base-url> \
+  --llm-base-url http://127.0.0.1:8000/v1 \
+  --llm-model deepseek-v4-flash-0731 \
+  --regenerate \
+  --output <path-to-wiki-dir>/wiki/site_data.json
 ```
 
-Key flags:
-- `--refresh-structure`: Re-extract `structure.json` from `codebase-memory-mcp` even if cached.
-- `--enrich-only`: Preserve existing hand-crafted/agent-authored prose in `wiki/*.md` and only inject/update the `## Dynamic Knowledge Links` section, frontmatter metadata, `knowledge_links.json`, and `graph.json`.
+What `build` does automatically:
+1. Extracts `structure.json` from `codebase-memory-mcp` (`LIMIT 95000` + non-null file filters so 500k+ node repos succeed).
+2. Builds the **Repo Dossier** (`wiki/.packets/_repo_dossier.md`) and plans the **Canonical DeepWiki v1.9.9.5 Outline** (`wiki/outline.json`) using `git` directory/build structure + `CBM` symbol centrality + `llm-wiki` doc mentions.
+3. Performs **3-Way Dynamic Knowledge Linking** (`wiki/knowledge_links.json`):
+   - **Entity Linking**: Matches code symbols and file paths in `raw/` or RAG docs to CBM definitions.
+   - **BM25 + 1-Hop `[[wikilink]]` Retrieval**: Links top architectural docs to each subsystem page.
+   - **Bridge Symbol Discovery**: Identifies high fan-in/fan-out symbols and cross-page call/import coupling weights.
+4. Synthesizes all 4 DeepWiki Page Archetypes (`wiki/*.md`) with 3–4 Mermaid diagrams per page, real `git` source code excerpts, and inline `[file:start-end]()` citations.
+5. Exports per-page 3-Source Context Packets (`wiki/.packets/<page-id>.md`) and writes `wiki/graph.json`.
 
-### 2. `query` — Query the Linked `llm-wiki` Collection
-
-Retrieves relevant wiki pages and raw documents using BM25 + 1-hop `[[wikilink]]` graph expansion:
+### Step 3: (Optional) Inspect `dossier` / `packet` & Refine Specific Pages
+If you (`deepseek-v4-flash-0731` or another agent) want to inspect the repository dossier or write bespoke prose for specific pages:
 
 ```bash
-python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py query \
-  --wiki-dir /home/jason/Project/deepwiki/llm-wiki \
-  --query "Optimize Graph SubgraphView WorkloadFactory" \
-  --limit 5 \
-  --output /tmp/deepwiki_query.json
+# 1. Inspect the 3-Source Repo Dossier (git + CBM + llm-wiki summary):
+python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py dossier \
+  --wiki-dir <path-to-wiki-dir> \
+  --output /tmp/repo_dossier.md
+
+# 2. Export a single page's 3-Source Context Packet (< 10 KB, includes git code slices + CBM symbols + llm-wiki docs):
+python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py packet \
+  --wiki-dir <path-to-wiki-dir> \
+  --page-id <page-id> \
+  --output /tmp/page_packet.md
+
+# 3. After editing <wiki-dir>/wiki/<page-id>.md, re-attach dynamic links & rebuild graph.json:
+python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py build \
+  --project <cbm-project-name> \
+  --out-dir <path-to-wiki-dir> \
+  --llm-wiki <path-to-wiki-dir> \
+  --repo <path-to-git-repo> \
+  --enrich-only \
+  --output /tmp/enrich_summary.json
 ```
 
-### 3. `lint` — Verify `[[wikilinks]]` and Orphan Pages
+### Step 4: Run `validate` (Mandatory Quality Gate)
+Always validate the generated DeepWiki before reporting completion:
 
 ```bash
-python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py lint \
-  --wiki-dir /home/jason/Project/deepwiki/llm-wiki \
-  --output /tmp/deepwiki_lint.json
+python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py validate \
+  --wiki-dir <path-to-wiki-dir> \
+  --output /tmp/deepwiki_validate.json
+cat /tmp/deepwiki_validate.json
 ```
 
-### 4. `serve` — Launch the DeepWiki Web UI
+`validate` verifies:
+- Every page in `outline.json` exists and has valid YAML frontmatter (`id`, `title`).
+- Every page has `<details><summary>Relevant source files</summary>`.
+- Every subsystem page has `>= 2` ```mermaid``` blocks (`>= 1` for overview).
+- Every page has `Sources: [...]()` citation lines and `## Dynamic Knowledge Links`.
+- `broken_links == []` and `orphans == []`.
 
-```bash
-python3 /home/jason/Project/deepwiki/.agents/skills/deepwiki-generator/scripts/deepwiki_cli.py serve \
-  --wiki-dir /home/jason/Project/deepwiki/llm-wiki \
-  --port 8765
-```
+---
 
-## Workflow for Agent-Authored DeepWiki Synthesis
+## CLI Subcommands Reference (`deepwiki_cli.py`)
 
-When asked to build a brand-new DeepWiki for a repository `<repo>` whose `codebase-memory-mcp` index is `<project>`:
-
-1. **Prepare `llm-wiki` 3-Layer Layout**:
-   - Ensure `<wiki-dir>/raw/` contains official repository docs (`README.md`, `docs/`, `*.dox`), `<wiki-dir>/wiki/` exists, and `<wiki-dir>/AGENTS.md` defines the schema.
-2. **Run `build` to Extract Code Graph & Discover Dynamic Links**:
-   - Run `deepwiki_cli.py build --project <project> --out-dir <wiki-dir> --llm-wiki <wiki-dir> --output <wiki-dir>/wiki/link_summary.json`.
-   - Inspect `<wiki-dir>/wiki/outline.json` and `<wiki-dir>/wiki/knowledge_links.json`.
-3. **Author / Refine DeepWiki Pages (Optional Agent Pass)**:
-   - Using `structure.json` and `knowledge_links.json`, write or refine `wiki/<id>.md` with rich architectural prose, 2–4 Mermaid diagrams (`graph TD`, `classDiagram`, `sequenceDiagram`), `<details><summary>Relevant source files</summary>`, and `Sources: [file:start-end]()` citations.
-   - Re-run `deepwiki_cli.py build --enrich-only ...` to attach the `## Dynamic Knowledge Links` tables and rebuild `graph.json`.
-4. **Lint & Serve**:
-   - Run `deepwiki_cli.py lint` to verify `broken_links == []` and `orphans == []`.
-   - Serve via `deepwiki_cli.py serve --wiki-dir <wiki-dir> --port 8765`.
-
-## Common Mistakes
-
-- **Mermaid `[["..."]]` subroutine nodes parsed as wikilinks**: Always strip fenced code blocks (` ```...``` `) before extracting or replacing `[[wikilinks]]` (handled automatically by `wikigen`).
-- **Slow one-shot CLI queries on 20k+ node repos**: Start `codebase-memory-mcp daemon start` before running `--refresh-structure` on large C++ repositories.
+| Subcommand | Purpose | Example |
+|---|---|---|
+| `build` | Extract CBM graph, link `git` + `CBM` + `llm-wiki`/`RAG`, and synthesize all pages | `deepwiki_cli.py build --project ... --out-dir ... --repo ... --output ...` |
+| `dossier` | Export the 3-Source Repository Dossier (`git` tree + `CBM` classes + `llm-wiki` docs) | `deepwiki_cli.py dossier --wiki-dir llm-wiki-executorch --output /tmp/dossier.md` |
+| `packet` | Export a single page's 3-Source Context Packet (`git` code snippets + `CBM` symbols + `llm-wiki` docs + Mermaid diagrams) | `deepwiki_cli.py packet --wiki-dir llm-wiki-executorch --page-id 8.1-core-runtime-architecture --output /tmp/p.md` |
+| `validate` | Run all structural, Mermaid, citation, and link-health quality gates | `deepwiki_cli.py validate --wiki-dir llm-wiki-executorch --output /tmp/val.json` |
+| `query` | Query the `llm-wiki` collection via BM25 + 1-hop `[[wikilink]]` expansion | `deepwiki_cli.py query --wiki-dir llm-wiki-executorch --query "Program Method EValue" --output /tmp/q.json` |
+| `lint` | Check `broken_links` and `orphans` across `wiki/*.md` | `deepwiki_cli.py lint --wiki-dir llm-wiki-executorch --output /tmp/lint.json` |
+| `serve` | Launch the interactive 3-column DeepWiki Web UI | `deepwiki_cli.py serve --wiki-dir llm-wiki-executorch --port 8766` |

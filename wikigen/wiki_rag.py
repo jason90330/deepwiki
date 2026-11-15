@@ -18,7 +18,7 @@ from typing import Any
 
 import yaml
 
-WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
+WIKILINK_RE = re.compile(r"\[\[([A-Za-z0-9_./ -]+?)(?:\|[^\]]+)?\]\]")
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
 
 
@@ -56,6 +56,7 @@ def parse_markdown_doc(path: Path, root: Path) -> dict[str, Any]:
     headings = [h.strip() for h in re.findall(r"^#{1,3}\s+(.+)$", body, flags=re.M)]
     title = str(meta.get("title") or (headings[0] if headings else path.stem))
     body_no_code = re.sub(r"```.*?```", "", body, flags=re.S)
+    body_no_code = re.sub(r"`[^`\n]+`", "", body_no_code)
     links = list(dict.fromkeys(
         l.strip() for l in WIKILINK_RE.findall(body_no_code)
         if l.strip() and not l.strip().startswith('"')
@@ -135,6 +136,8 @@ class WikiRAG:
             for p in sorted(list(d.rglob("*.md")) + list(d.rglob("*.dox"))):
                 if p.name in ("log.md", "AGENTS.md", "CLAUDE.md"):
                     continue
+                if any(part.startswith(".") for part in p.relative_to(self.root).parts):
+                    continue
                 doc = parse_markdown_doc(p, self.root)
                 self.by_id[doc["id"]] = len(self.docs)
                 self.docs.append(doc)
@@ -184,6 +187,8 @@ class WikiRAG:
         inbound: Counter[str] = Counter()
         broken: list[dict[str, str]] = []
         for d in self.docs:
+            if d["path"].startswith("raw/"):
+                continue
             for target in d["links"]:
                 if target in known:
                     inbound[target] += 1

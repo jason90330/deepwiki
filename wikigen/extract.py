@@ -17,7 +17,7 @@ import networkx as nx
 
 from .cbm import CBMClient
 
-SYMBOL_LABELS = ("Class", "Function", "Method")
+SYMBOL_LABELS = ("Class", "Struct", "Interface", "Function", "Method")
 # Edge type -> weight when folded to the file level.
 EDGE_WEIGHTS = {"CALLS": 1.0, "IMPORTS": 2.0, "INHERITS": 3.0}
 SIBLING_WEIGHT = 0.3          # weak affinity between files in the same directory
@@ -44,8 +44,9 @@ def clean_sig(raw: str | None) -> str:
 
 def is_test_path(path: str) -> bool:
     p = PurePosixPath(path)
-    return any(part in ("tests", "test", "__tests__") for part in p.parts[:-1]) or \
-        p.name.startswith("test_") or p.stem.endswith("_test")
+    test_dirs = ("tests", "test", "__tests__", "androidtest", "uitest", "benchmarks")
+    return any(part.lower() in test_dirs or part.lower().endswith("test") for part in p.parts[:-1]) or \
+        p.name.startswith("test_") or p.stem.endswith(("_test", "Test"))
 
 
 def _int(v: Any) -> int:
@@ -67,8 +68,9 @@ def fetch_graph(client: CBMClient) -> dict[str, Any]:
     symbols: dict[str, dict[str, Any]] = {}
     for label in SYMBOL_LABELS:
         rows = client.query(
-            f"MATCH (s:{label}) RETURN s.qualified_name, s.name, s.file_path, s.start_line, "
-            f"s.end_line, s.signature, s.docstring")
+            f"MATCH (s:{label}) WHERE s.file_path IS NOT NULL "
+            f"RETURN s.qualified_name, s.name, s.file_path, s.start_line, "
+            f"s.end_line, s.signature, s.docstring LIMIT 95000")
         for r in rows:
             qn, fp = r["s.qualified_name"], r["s.file_path"]
             if not qn or not fp:
@@ -81,13 +83,14 @@ def fetch_graph(client: CBMClient) -> dict[str, Any]:
     edges: list[tuple[str, str, str, str, str]] = []  # (type, src_qn, src_file, dst_qn, dst_file)
     for etype in EDGE_WEIGHTS:
         rows = client.query(
-            f"MATCH (a)-[:{etype}]->(b) RETURN a.qualified_name, a.file_path, "
-            f"b.qualified_name, b.file_path")
+            f"MATCH (a)-[:{etype}]->(b) "
+            f"WHERE a.file_path IS NOT NULL AND b.file_path IS NOT NULL "
+            f"RETURN a.qualified_name, a.file_path, b.qualified_name, b.file_path LIMIT 95000")
         for r in rows:
             if r["a.file_path"] and r["b.file_path"]:
                 edges.append((etype, r["a.qualified_name"], r["a.file_path"],
                               r["b.qualified_name"], r["b.file_path"]))
-    files = sorted({r["f.file_path"] for r in client.query("MATCH (f:File) RETURN f.file_path")
+    files = sorted({r["f.file_path"] for r in client.query("MATCH (f:File) RETURN f.file_path LIMIT 95000")
                     if r["f.file_path"] and not r["f.file_path"].startswith("<")})
     file_set = set(files)
     symbols = {qn: s for qn, s in symbols.items() if s["file"] in file_set}
@@ -106,15 +109,21 @@ def build_structure(raw: dict[str, Any], *, project: str, repo_root: Path) -> di
     code_files = sorted({s["file"] for s in symbols.values()})
     all_files = sorted(set(raw["files"]) | set(code_files))
 
-    # Symbol fan-in/out over project-internal CALLS.
+    # Symbol fan-in/out over project-internal CALLS, plus INHERITS & top CALLS edges.
     fan_in: Counter[str] = Counter()
     fan_out: Counter[str] = Counter()
     file_w: dict[tuple[str, str], float] = defaultdict(float)
+    inherits: set[tuple[str, str]] = set()
+    call_pairs: set[tuple[str, str]] = set()
+    code_file_set = set(code_files)
     for etype, sq, sf, dq, df in raw["edges"]:
         if etype == "CALLS" and dq in symbols and sq in symbols and sq != dq:
             fan_in[dq] += 1
             fan_out[sq] += 1
-        if sf != df and sf in code_files and df in code_files:
+            call_pairs.add((sq, dq))
+        elif etype == "INHERITS" and sq in symbols and dq in symbols and sq != dq:
+            inherits.add((sq, dq))
+        if sf != df and sf in code_file_set and df in code_file_set:
             key = tuple(sorted((sf, df)))
             file_w[key] += EDGE_WEIGHTS[etype]  # type: ignore[index]
     for qn, s in symbols.items():
@@ -172,6 +181,8 @@ def build_structure(raw: dict[str, Any], *, project: str, repo_root: Path) -> di
                       "symbols": sorted(q for q, s in symbols.items() if s["file"] == f)}
                   for f in all_files},
         "symbols": symbols,
+        "inherits": [[a, b] for a, b in sorted(inherits)],
+        "call_edges": [[a, b] for a, b in sorted(call_pairs)[:25000]],
         "file_edges": [[a, b, round(w, 2)] for (a, b), w in sorted(file_w.items())],
         "communities": communities,
         "community_edges": [[a, b, round(w, 2)] for (a, b), w in sorted(comm_w.items())],

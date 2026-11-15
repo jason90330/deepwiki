@@ -1,0 +1,26 @@
+{
+  "status": "ok",
+  "mode": "generated-and-linked",
+  "project": "home-jason-Project-deepwiki-armnn",
+  "repo_root": "/home/jason/Project/deepwiki/armnn",
+  "out_dir": "/home/jason/Project/deepwiki/llm-wiki",
+  "pages_updated": 25,
+  "graph_nodes": 2002,
+  "graph_edges": 14577,
+  "link_stats": {
+    "total_code_symbols": 13625,
+    "total_code_files": 2332,
+    "total_collection_docs": 40,
+    "docs_with_symbol_links": 38,
+    "total_symbol_mentions": 800,
+    "pages_linked": 25
+  },
+  "artifacts": {
+    "structure": "/home/jason/Project/deepwiki/llm-wiki/raw/armnn/structure.json",
+    "outline": "/home/jason/Project/deepwiki/llm-wiki/wiki/outline.json",
+    "knowledge_links": "/home/jason/Project/deepwiki/llm-wiki/wiki/knowledge_links.json",
+    "graph": "/home/jason/Project/deepwiki/llm-wiki/wiki/graph.json",
+    "dossier": "/home/jason/Project/deepwiki/llm-wiki/wiki/.packets/_repo_dossier.md",
+    "packets_dir": "/home/jason/Project/deepwiki/llm-wiki/wiki/.packets"
+  }
+}

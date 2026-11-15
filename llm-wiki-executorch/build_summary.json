@@ -1,0 +1,26 @@
+{
+  "status": "ok",
+  "mode": "generated-and-linked",
+  "project": "home-jason-Project-deepwiki-executorch",
+  "repo_root": "/home/jason/Project/deepwiki/executorch",
+  "out_dir": "/home/jason/Project/deepwiki/llm-wiki-executorch",
+  "pages_updated": 46,
+  "graph_nodes": 7900,
+  "graph_edges": 22878,
+  "link_stats": {
+    "total_code_symbols": 85820,
+    "total_code_files": 10202,
+    "total_collection_docs": 134,
+    "docs_with_symbol_links": 133,
+    "total_symbol_mentions": 2930,
+    "pages_linked": 46
+  },
+  "artifacts": {
+    "structure": "/home/jason/Project/deepwiki/llm-wiki-executorch/raw/home-jason-Project-deepwiki-executorch/structure.json",
+    "outline": "/home/jason/Project/deepwiki/llm-wiki-executorch/wiki/outline.json",
+    "knowledge_links": "/home/jason/Project/deepwiki/llm-wiki-executorch/wiki/knowledge_links.json",
+    "graph": "/home/jason/Project/deepwiki/llm-wiki-executorch/wiki/graph.json",
+    "dossier": "/home/jason/Project/deepwiki/llm-wiki-executorch/wiki/.packets/_repo_dossier.md",
+    "packets_dir": "/home/jason/Project/deepwiki/llm-wiki-executorch/wiki/.packets"
+  }
+}

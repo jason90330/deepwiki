@@ -108,8 +108,11 @@ def cmd_link(args: argparse.Namespace) -> None:
         source_url=args.source_url,
         cbm_bin=args.cbm_bin,
         refresh_structure=args.refresh_structure,
+        regenerate=args.regenerate,
         enrich_only=args.enrich_only,
         workers=args.workers,
+        llm_base_url=args.llm_base_url,
+        llm_model=args.llm_model,
     )
     if args.output_file:
         _save(args.output_file, res)
@@ -172,8 +175,11 @@ def main(argv: list[str] | None = None) -> None:
         lk.add_argument("--source-url", help="browsable source base URL for citation links")
         lk.add_argument("--cbm-bin", help="path to codebase-memory-mcp binary")
         lk.add_argument("--refresh-structure", action="store_true", help="re-extract structure.json from CBM index")
+        lk.add_argument("--regenerate", action="store_true", help="re-plan outline.json and regenerate all wiki/*.md pages")
         lk.add_argument("--enrich-only", action="store_true", help="only inject dynamic knowledge links into existing wiki/*.md")
         lk.add_argument("--workers", type=int, default=4, help="parallel page workers")
+        lk.add_argument("--llm-base-url", help="optional OpenAI-compatible local LLM base URL (e.g. http://127.0.0.1:8000/v1)")
+        lk.add_argument("--llm-model", help="optional local LLM model name (default: deepseek-v4-flash-0731)")
         lk.add_argument("--output-file", type=Path, help="optional JSON summary file path")
         lk.set_defaults(func=cmd_link)
 

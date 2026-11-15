@@ -7,8 +7,10 @@ __pycache__/
 
 # Cloned third-party reference repos & temporary outputs
 /armnn/
+/executorch/
 /rea/
 /out/
+**/structure.json
 
 # Editor / OS files
 .DS_Store

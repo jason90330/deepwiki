@@ -41,7 +41,8 @@ def render_page(
     if page.get("summary"):
         parts.append(f"> {page['summary']}\n")
     parts.append(body.strip() + "\n")
-    parts.append("## Dependency diagram\n\n" + gen["diagram"] + "\n")
+    if gen.get("diagram"):
+        parts.append("## Dependency diagram\n\n" + gen["diagram"] + "\n")
     if children:
         parts.append("## Sub-pages\n\n" + "\n".join(f"- [[{c['id']}|{c['title']}]]" for c in children) + "\n")
     if page.get("related"):

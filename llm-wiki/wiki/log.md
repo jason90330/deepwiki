@@ -9,3 +9,15 @@
 
 ## [2026-11-15 00:31] link (enriched-existing-wiki) | project=`home-jason-Project-deepwiki-armnn` | 26 pages, 39/41 docs linked, 810 symbol mentions -> `knowledge_links.json` & `graph.json`
 
+## [2026-11-15 23:06] generate | 25 pages from home-jason-Project-deepwiki-armnn@2b61cecc9df7 via deterministic-deepwiki-v1.9
+
+## [2026-11-15 23:06] link (generated-and-linked) | project=`home-jason-Project-deepwiki-armnn` | 25 pages, 39/41 docs linked, 809 symbol mentions -> `knowledge_links.json` & `graph.json`
+
+## [2026-11-15 23:12] generate | 25 pages from home-jason-Project-deepwiki-armnn@2b61cecc9df7 via deterministic-deepwiki-v1.9
+
+## [2026-11-15 23:12] link (generated-and-linked) | project=`home-jason-Project-deepwiki-armnn` | 25 pages, 38/40 docs linked, 792 symbol mentions -> `knowledge_links.json` & `graph.json`
+
+## [2026-11-15 23:14] generate | 25 pages from home-jason-Project-deepwiki-armnn@2b61cecc9df7 via deterministic-deepwiki-v1.9
+
+## [2026-11-15 23:14] link (generated-and-linked) | project=`home-jason-Project-deepwiki-armnn` | 25 pages, 38/40 docs linked, 800 symbol mentions -> `knowledge_links.json` & `graph.json`
+

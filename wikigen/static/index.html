@@ -54,13 +54,24 @@
   #doc-pane th, #doc-pane td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
   #doc-pane th { background: var(--panel); }
   #doc-pane blockquote { border-left: 3px solid var(--accent); margin: 12px 0; padding: 4px 14px; color: var(--muted); }
-  details.sources-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  details.sources-box, #doc-pane details { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
                         padding: 8px 12px; margin-bottom: 18px; font-size: 12.5px; }
-  details.sources-box summary { cursor: pointer; color: var(--muted); font-weight: 500; }
-  .source-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  details.sources-box summary, #doc-pane details summary { cursor: pointer; color: var(--muted); font-weight: 500; user-select: none; }
+  #doc-pane details ul { list-style: none; padding: 0; margin: 10px 0 2px; display: flex; flex-wrap: wrap; gap: 6px; max-height: 190px; overflow-y: auto; }
+  #doc-pane details li { margin: 0; }
+  .source-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; align-items: center; }
   .chip { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: #1c2230;
-          border: 1px solid var(--border); color: #c9d1d9; text-decoration: none; }
+          border: 1px solid var(--border); color: #c9d1d9; text-decoration: none; font-family: ui-monospace, monospace; }
   .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .dw-cite { display: inline-flex; align-items: stretch; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+             font-size: 11.5px; line-height: 1.3; text-decoration: none !important; margin: 1px 3px 1px 0;
+             border-radius: 4px; overflow: hidden; border: 1px solid #30363d; vertical-align: baseline; transition: opacity .15s, border-color .15s; }
+  .dw-cite:hover { border-color: var(--accent); opacity: 0.92; text-decoration: none !important; }
+  .dw-cite-file { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; background: #21262d; color: #e6edf3; }
+  .dw-cite-file svg { width: 12px; height: 12px; opacity: 0.55; flex-shrink: 0; fill: currentColor; }
+  .dw-cite-lines { display: inline-flex; align-items: center; padding: 2px 6px; background: #161b22;
+                   color: #8b949e; border-left: 1px solid #30363d; }
+  .nav-item.grandchild { padding-left: 34px; color: var(--muted); font-size: 12px; }
   .diagram-card { background: #111622; border: 1px solid var(--border); border-radius: 10px;
                   margin: 18px 0; overflow: hidden; display: flex; flex-direction: column; }
   .diagram-card.fullscreen { position: fixed; inset: 16px; z-index: 60; margin: 0;
@@ -173,9 +184,28 @@ const state = { catalog: null, graph: null, currentId: null, graphMode: "overvie
 
 async function api(url) { const r = await fetch(url); return r.json(); }
 
+const GH_SVG = `<svg viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"></path></svg>`;
+
+function formatCiteBadge(ref, base, explicitHref) {
+  const clean = ref.trim().replace(/^`|`$/g, "");
+  const m = clean.match(/^([A-Za-z0-9_./-]+?)(?::(\d+)(?:-(\d+))?)?$/);
+  if (!m) return `<span class="chip">${clean}</span>`;
+  const [, p, l1, l2] = m;
+  const linePart = l1 ? `<span class="dw-cite-lines">${l2 && l2 !== l1 ? `${l1}-${l2}` : l1}</span>` : "";
+  const inner = `<span class="dw-cite-file">${GH_SVG}${p}</span>${linePart}`;
+  if (explicitHref && explicitHref.startsWith("http")) {
+    return `<a class="dw-cite" target="_blank" rel="noopener" href="${explicitHref}">${inner}</a>`;
+  }
+  if (base && !p.startsWith("raw/")) {
+    const hash = l1 ? (l2 && l2 !== l1 ? `#L${l1}-L${l2}` : `#L${l1}`) : "";
+    return `<a class="dw-cite" target="_blank" rel="noopener" href="${base}/${p}${hash}">${inner}</a>`;
+  }
+  return `<span class="dw-cite">${inner}</span>`;
+}
+
 function renderMarkdown(md, sourceUrl) {
   const base = sourceUrl ? sourceUrl.replace(/\/$/, "") : null;
-  // Protect fenced code blocks before transforming [[wikilinks]] and Sources: lines
+  // Protect fenced code blocks before transforming [[wikilinks]] and citations
   const fences = [];
   let text = md.replace(/```[\s\S]*?```/g, m => { fences.push(m); return `@@FENCE_${fences.length - 1}@@`; });
 
@@ -183,18 +213,26 @@ function renderMarkdown(md, sourceUrl) {
   text = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, id, label) =>
     `[${label || id}](#page/${encodeURIComponent(id.trim())})`);
 
-  // Convert `Sources: [file:10-20](), ...` into DeepWiki source pill bars
+  // Convert backtick-wrapped citations `` `[file:10-20]()` `` into raw `[file:10-20]()`
+  text = text.replace(/`(\[[A-Za-z0-9_./-]+(?::\d+(?:-\d+)?)?\]\([^)]*\))`/g, "$1");
+
+  // Convert `Sources: ...` lines into DeepWiki source pill bars
   text = text.replace(/^Sources:\s*(.+)$/gm, (_, listStr) => {
-    const pills = listStr.replace(/\[([^\]]+)\]\([^)]*\)/g, (__, ref) => {
-      const m = ref.match(/^([^:]+?)(?::(\d+)(?:-(\d+))?)?$/);
-      if (base && m) {
-        const [, p, l1, l2] = m;
-        const hash = l1 ? (l2 ? `#L${l1}-L${l2}` : `#L${l1}`) : "";
-        return `<a class="chip" target="_blank" href="${base}/${p}${hash}">${ref}</a>`;
-      }
-      return `<span class="chip">${ref}</span>`;
-    });
+    const pills = listStr
+      .replace(/\[([^\]]+)\]\(([^)]*)\)/g, (__, ref, href) => formatCiteBadge(ref, base, href))
+      .replace(/`([A-Za-z0-9_./-]+:\d+(?:-\d+)?)`/g, (__, ref) => formatCiteBadge(ref, base, ""));
     return `<div class="source-chips"><span style="font-size:11.5px;color:var(--muted);align-self:center;margin-right:4px">Sources:</span>${pills}</div>`;
+  });
+
+  // Convert inline `[path/to/file.ext:10-20]()` or `[path/to/file.ext](path/to/file.ext)` into DeepWiki split pill badges
+  text = text.replace(/\[([A-Za-z0-9_./-]+(?::\d+(?:-\d+)?)?)\]\(([^)]*)\)/g, (full, ref, href) => {
+    if (href.startsWith("#page/")) return full;
+    if (/^[.#]?[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+(?::\d+(?:-\d+)?)?$/.test(ref) || /:\d+/.test(ref) || /\.(py|cpp|cc|c|h|hpp|rs|go|js|ts|java|kt|swift|mm|m|cmake|bzl|sh|yaml|yml|toml|json|md|rst|fbs)(?::\d+(?:-\d+)?)?$/i.test(ref)) {
+      if (!href || href === ref || href.startsWith("http")) {
+        return formatCiteBadge(ref, base, href);
+      }
+    }
+    return full;
   });
 
   // Restore fenced code blocks
@@ -228,6 +266,16 @@ async function loadPage(id) {
   pane.innerHTML = topBox + renderMarkdown(data.markdown, data.meta?.source_url);
   pane.querySelectorAll('a[href^="#page/"]').forEach(a => {
     a.onclick = e => { e.preventDefault(); loadPage(decodeURIComponent(a.getAttribute("href").slice(6))); };
+  });
+  pane.querySelectorAll('a[href^="#"]').forEach(a => {
+    const h = a.getAttribute("href") || "";
+    if (h.startsWith("#page/") || h.startsWith("#sec-")) return;
+    const rawTarget = h.slice(1);
+    const matchPage = (state.catalog?.pages || []).find(p =>
+      p.id === rawTarget || p.section_id === rawTarget || p.id.startsWith(rawTarget + "-"));
+    if (matchPage) {
+      a.onclick = e => { e.preventDefault(); loadPage(matchPage.id); };
+    }
   });
 
   // Wrap Mermaid diagrams with natural 1:1 SVG sizing, drag-to-pan, wheel zoom & fullscreen
@@ -327,17 +375,19 @@ function buildNav() {
   const { title, commit, pages, llm_pages } = state.catalog;
   document.getElementById("wiki-title").textContent = title;
   document.getElementById("commit-pill").textContent = commit ? commit.slice(0, 8) : "local";
-  const mkBtn = (id, label, isChild) => {
+  const mkBtn = (p) => {
     const b = document.createElement("button");
-    b.className = "nav-item" + (isChild ? " child" : "");
-    b.dataset.id = id; b.textContent = label; b.onclick = () => loadPage(id);
+    const dots = (p.section_id || p.id.split("-")[0] || "").split(".").length - 1;
+    const cls = dots >= 2 ? " grandchild" : (p.parent || dots === 1 ? " child" : "");
+    b.className = "nav-item" + cls;
+    b.dataset.id = p.id; b.textContent = p.title; b.onclick = () => loadPage(p.id);
     return b;
   };
   const ln = document.getElementById("llm-nav"); ln.innerHTML = "";
   document.getElementById("llm-heading").style.display = llm_pages.length ? "block" : "none";
-  llm_pages.forEach(p => ln.appendChild(mkBtn(p.id, p.title, Boolean(p.parent))));
+  llm_pages.forEach(p => ln.appendChild(mkBtn(p)));
   const cn = document.getElementById("code-nav"); cn.innerHTML = "";
-  pages.forEach(p => cn.appendChild(mkBtn(p.id, p.title, Boolean(p.parent))));
+  pages.forEach(p => cn.appendChild(mkBtn(p)));
 }
 
 // --- Canvas Force Graph (Modal) ---

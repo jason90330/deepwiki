@@ -19,14 +19,20 @@ from typing import Any
 
 from .cbm import CBMClient, find_binary
 from .extract import extract
+from .llm import LocalLLMClient
 from .pages import (
     _file_to_pages,
     _page_files,
     _symbols_for,
     generate_all,
+    mermaid_class_diagram,
+    mermaid_nl_to_code_diagram,
+    mermaid_page,
+    mermaid_sequence_diagram,
     page_deps,
+    read_source_snippet,
 )
-from .plan import dumps, plan_outline
+from .plan import dumps, plan_outline, write_repo_dossier
 from .render import _frontmatter, write_wiki
 from .serve import _strip_frontmatter
 from .wiki_rag import WikiRAG
@@ -229,6 +235,7 @@ def discover_knowledge_links(
     # Map every outline page to its linked docs (combining BM25/RAG query + entity overlap)
     page_to_docs: dict[str, list[dict[str, Any]]] = {}
     page_to_bridges: dict[str, list[dict[str, Any]]] = {}
+    valid_page_ids = {p["id"] for p in outline.get("pages", [])} | {"index"}
 
     for page in outline.get("pages", []):
         pid = page["id"]
@@ -258,6 +265,8 @@ def discover_knowledge_links(
         for h in rag_hits:
             if h["id"] == pid:
                 continue
+            if not h["path"].startswith("raw/") and not h["id"].startswith("rag:") and h["id"] not in valid_page_ids:
+                continue
             shared = sorted(psym_names.intersection({m["name"] for m in doc_to_symbols.get(h["id"], [])}))
             combined[h["id"]] = {
                 "id": h["id"],
@@ -270,10 +279,13 @@ def discover_knowledge_links(
             }
 
         # Also add docs that directly reference files on this page even if missed by top_k lexical query
+        doc_text_by_id = {d["id"]: d.get("text", "") for d in collection.docs}
         for pf in pfiles:
             for dref in file_to_docs.get(pf, []):
                 did = dref["id"]
                 if did == pid or did in combined:
+                    continue
+                if not dref["path"].startswith("raw/") and not did.startswith("rag:") and did not in valid_page_ids:
                     continue
                 shared = sorted(psym_names.intersection({m["name"] for m in doc_to_symbols.get(did, [])}))
                 if shared:
@@ -284,7 +296,7 @@ def discover_knowledge_links(
                         "score": round(len(shared) * 2.0, 3),
                         "via": f"entity-link({len(shared)} symbols)",
                         "shared_symbols": shared[:8],
-                        "snippet": "",
+                        "snippet": doc_text_by_id.get(did, "")[:360],
                     }
 
         ranked_docs = sorted(combined.values(), key=lambda x: -x["score"])[:6]
@@ -482,13 +494,16 @@ def run_dynamic_pipeline(
     source_url: str | None = None,
     cbm_bin: str | None = None,
     refresh_structure: bool = False,
+    regenerate: bool = False,
     enrich_only: bool = False,
     workers: int = 4,
+    llm_base_url: str | None = None,
+    llm_model: str | None = None,
 ) -> dict[str, Any]:
-    """End-to-end dynamic pipeline:
+    """End-to-end dynamic pipeline (`git` + `CBM` + `llm-wiki`):
     1. Load or extract `structure.json` from an already-indexed `codebase-memory-mcp` project.
     2. Load the `llm-wiki` and/or HTTP/Qdrant `rag` collection.
-    3. Load an existing `outline.json` (if present in `out_dir`) or plan a 2-level DeepWiki outline.
+    3. Load an existing `outline.json` (if present in `out_dir`) or plan a Canonical DeepWiki outline.
     4. Compute 3-way dynamic knowledge links (`wiki/knowledge_links.json`).
     5. Generate or enrich DeepWiki pages (`wiki/*.md`), `index.md`, `log.md`, and `wiki/graph.json`.
     """
@@ -515,6 +530,7 @@ def run_dynamic_pipeline(
         structure = json.loads(struct_path.read_text(encoding="utf-8"))
 
     resolved_repo = Path(structure.get("repo_root") or infer_repo_from_project(project, repo))
+    structure["repo_root"] = str(resolved_repo)
 
     # Step 2: Initialize Knowledge Collection (llm-wiki and/or RAG)
     effective_wiki = llm_wiki_dir.resolve() if llm_wiki_dir else (out_dir if (out_dir / "wiki").is_dir() else None)
@@ -524,14 +540,19 @@ def run_dynamic_pipeline(
         rag_collection=rag_collection,
     )
 
-    # Step 3: Load or Plan 2-level DeepWiki Outline
+    # Step 3: Load or Plan Canonical DeepWiki Outline
     outline_path = (wiki_dir / "outline.json") if (wiki_dir / "outline.json").exists() else (out_dir / "outline.json")
-    if outline_path.exists() and not refresh_structure:
+    if outline_path.exists() and not refresh_structure and not regenerate:
         outline = json.loads(outline_path.read_text(encoding="utf-8"))
     else:
         outline_path = wiki_dir / "outline.json"
-        outline = plan_outline(structure)
+        outline = plan_outline(structure, repo_root=resolved_repo)
         outline_path.write_text(dumps(outline), encoding="utf-8")
+
+    if regenerate:
+        for old_md in wiki_dir.glob("*.md"):
+            if old_md.stem not in ("log",):
+                old_md.unlink()
 
     # Step 4: Dynamic Knowledge Linking (Code Graph <-> Wiki/RAG)
     links = discover_knowledge_links(structure, outline, collection)
@@ -539,8 +560,9 @@ def run_dynamic_pipeline(
     links_path.write_text(dumps(links), encoding="utf-8")
 
     # Step 5: Generate new pages OR enrich existing curated DeepWiki pages in-place
+    llm_client = LocalLLMClient(base_url=llm_base_url, model=llm_model)
     existing_md_count = sum(1 for p in outline.get("pages", []) if (wiki_dir / f"{p['id']}.md").exists())
-    if enrich_only or existing_md_count >= len(outline.get("pages", [])) > 0:
+    if not regenerate and (enrich_only or existing_md_count >= len(outline.get("pages", [])) > 0):
         written = enrich_existing_wiki_pages(out_dir, outline, structure, links, source_url=source_url)
         mode = "enriched-existing-wiki"
     else:
@@ -549,12 +571,15 @@ def run_dynamic_pipeline(
             structure,
             workers=workers,
             doc_rag=collection.wiki_rag,
+            llm_client=llm_client if llm_client.enabled else None,
         )
         written = write_wiki(out_dir, outline, structure, generated, source_url=source_url)
         enrich_existing_wiki_pages(out_dir, outline, structure, links, source_url=source_url)
-        mode = "generated-and-linked"
+        mode = "generated-and-linked" + (f" ({llm_client.model})" if llm_client.enabled else "")
 
-    # Step 6: Write enriched graph.json & append audit log
+    # Step 6: Write 3-source repo dossier, per-page context packets & enriched graph.json
+    dossier_path = write_repo_dossier(out_dir, structure, outline, links, repo_root=resolved_repo)
+    packets_dir = write_page_packets(out_dir, outline, structure, links, repo_root=resolved_repo)
     graph = build_enriched_graph(outline, structure, links)
     graph_path = wiki_dir / "graph.json"
     graph_path.write_text(json.dumps(graph, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -583,5 +608,178 @@ def run_dynamic_pipeline(
             "outline": str(outline_path),
             "knowledge_links": str(links_path),
             "graph": str(graph_path),
+            "dossier": str(dossier_path),
+            "packets_dir": str(packets_dir),
         },
+    }
+
+
+def write_page_packets(
+    out_dir: Path,
+    outline: dict[str, Any],
+    structure: dict[str, Any],
+    links: dict[str, Any],
+    repo_root: Path | None = None,
+) -> Path:
+    """Write 3-Source (`git` + `CBM` + `llm-wiki`) per-page context packets to `wiki/.packets/<page-id>.md`.
+
+    Gives `deepseek v4 flash 0731` (or any agent) grounded source code excerpts from `git`,
+    `CBM` symbol/call/inheritance subgraphs, and `llm-wiki` documentation sections in one file.
+    """
+    wiki_dir = out_dir / "wiki" if (out_dir / "wiki").is_dir() else out_dir
+    packets_dir = wiki_dir / ".packets"
+    packets_dir.mkdir(parents=True, exist_ok=True)
+    valid_pids = {p["id"] for p in outline.get("pages", [])} | {"_repo_dossier"}
+    for old_pkt in packets_dir.glob("*.md"):
+        if old_pkt.stem not in valid_pids:
+            old_pkt.unlink()
+    titles = {p["id"]: p["title"] for p in outline.get("pages", [])}
+    effective_repo = repo_root or (Path(structure["repo_root"]) if structure.get("repo_root") else None)
+
+    for page in outline.get("pages", []):
+        pid = page["id"]
+        files = _page_files(page)
+        syms = _symbols_for(files, structure)[:22]
+        linked_docs = links.get("page_to_docs", {}).get(pid, [])
+        children = [p for p in outline.get("pages", []) if p.get("parent") == pid]
+
+        lines = [
+            f"# 3-Source Context Packet (`git` + `CBM` + `llm-wiki`) for `{pid}` — {page['title']}",
+            "",
+            f"- **Target Wiki File**: `wiki/{pid}.md`",
+            f"- **Archetype**: `{'Parent Hub Page' if children else ('Glossary Page' if pid.endswith('-glossary') else 'Leaf Technical Spec Page')}`",
+            f"- **Parent Page**: `{page.get('parent') or 'None (Top-Level Chapter)'}`",
+            f"- **Summary**: {page.get('summary', '')}",
+            f"- **Valid `[[wikilink]]` Neighbours**: "
+            + (", ".join(f"`[[{r}|{titles.get(r, r)}]]`" for r in page.get("related", [])) or "none"),
+            "",
+            "## 1. Relevant Source Files (`git` + `CBM`, use verbatim in `<details>`)",
+            *[f"- `[{f}]({f})`" for f in files[:30]],
+            "",
+            "## 2. Grounded Code Symbols (`CBM`, use verbatim for `[file:start-end]()` pill citations)",
+        ]
+        for _q, s in syms:
+            doc = re.sub(r"\s+", " ", s.get("doc") or "").strip()[:160]
+            lines.append(
+                f"- `{s['name']}` ({s['label']}) @ `[{s['file']}:{s['start']}-{s['end']}]()` "
+                f"[fan-in={s['fan_in']}, fan-out={s['fan_out']}] — {doc or s.get('signature', '')[:110]}"
+            )
+
+        # Include real source code excerpts from `git` working tree!
+        if effective_repo and syms:
+            lines += ["", "## 3. Grounded Source Code Excerpts (`git` Working Tree)"]
+            added_excerpts = 0
+            for _q, s in syms[:8]:
+                code_str, l_start, l_end, lang = read_source_snippet(
+                    effective_repo, s["file"], s["start"], s["end"], max_lines=16
+                )
+                if code_str and len(code_str.splitlines()) >= 3:
+                    lines += [
+                        f"### `{s['name']}` in `[{s['file']}:{l_start}-{l_end}]()`",
+                        f"```{lang}",
+                        code_str,
+                        "```",
+                        "",
+                    ]
+                    added_excerpts += 1
+                    if added_excerpts >= 5:
+                        break
+
+        lines += ["", "## 4. Linked Official Docs (`llm-wiki` / `RAG`)"]
+        for d in linked_docs:
+            clean_snip = re.sub(r"\s+", " ", d.get("snippet", ""))[:360]
+            lines.append(
+                f"- **{d['title']}** (`{d['path']}`, score={d['score']}, shared_symbols={d.get('shared_symbols', [])}): "
+                f"{clean_snip}"
+            )
+        if not linked_docs:
+            lines.append("- *(none)*")
+
+        lines += [
+            "",
+            "## 5. Pre-Verified DeepWiki v1.9.9.5 Mermaid Diagrams",
+        ]
+        nl_diag = mermaid_nl_to_code_diagram(files, structure, max_items=6)
+        if nl_diag:
+            lines += ["### Natural Language Space <-> Code Entity Space", nl_diag, ""]
+        lines += ["### Subsystem Architecture Flowchart", mermaid_page(page, outline, structure), ""]
+        cdiag = mermaid_class_diagram(files, structure)
+        if cdiag:
+            lines += ["### Class Hierarchy Diagram", cdiag, ""]
+        sdiag = mermaid_sequence_diagram(files, structure)
+        if sdiag:
+            lines += ["### Call Sequence Diagram", sdiag, ""]
+
+        lines += [
+            "## 6. DeepWiki v1.9.9.5 Authoring Checklist for `wiki/" + pid + ".md`",
+            "1. Keep YAML frontmatter at top (`id`, `title`, `parent`, `sources`, `linked_docs`, `bridge_symbols`).",
+            "2. Keep `<details><summary>Relevant source files</summary>` block immediately after `# Title`.",
+            "3. Start with `## Purpose and Scope`, then numbered `## 1. ...`, `## 2. ...` sections separated by `---`.",
+            "4. Include at least 2 ```mermaid``` diagrams (including a `Natural Language Space` <-> `Code Entity Space` mapping).",
+            "5. Cite code entities inline using `[path/to/file.ext:start-end]()` and end every `##` section with `Sources: [file:start-end]()`.",
+            "6. Run `deepwiki_cli.py build --enrich-only ...` and `deepwiki_cli.py validate ...` after editing.",
+        ]
+        (packets_dir / f"{pid}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return packets_dir
+
+
+def validate_deepwiki(wiki_root: Path) -> dict[str, Any]:
+    """Validate all generated DeepWiki pages against strict structural & link-health gates."""
+    wiki_root = wiki_root.resolve()
+    wiki_dir = wiki_root / "wiki" if (wiki_root / "wiki").is_dir() else wiki_root
+    outline_path = wiki_dir / "outline.json"
+    if not outline_path.exists():
+        return {"passed": False, "error": f"Missing {outline_path}"}
+
+    outline = json.loads(outline_path.read_text(encoding="utf-8"))
+    rag = WikiRAG(wiki_root, include_raw=True)
+    lint_res = rag.lint()
+
+    page_issues: list[dict[str, Any]] = []
+    checked = 0
+    total_mermaid = 0
+    total_citations = 0
+
+    for p in outline.get("pages", []):
+        pid = p["id"]
+        md_path = wiki_dir / f"{pid}.md"
+        if not md_path.exists():
+            page_issues.append({"page": pid, "issue": f"Missing file wiki/{pid}.md"})
+            continue
+        checked += 1
+        raw = md_path.read_text(encoding="utf-8", errors="replace")
+        meta, body = _strip_frontmatter(raw)
+        issues: list[str] = []
+        if not meta.get("id") or not meta.get("title"):
+            issues.append("Missing YAML frontmatter `id` or `title`.")
+        if "<details>" not in body or "Relevant source files" not in body:
+            issues.append("Missing `<details><summary>Relevant source files</summary>` block.")
+        mermaids = re.findall(r"```mermaid\s*\n(.*?)```", body, flags=re.S)
+        total_mermaid += len(mermaids)
+        min_req = 1 if pid in ("overview", "1-overview") else 2
+        if len(mermaids) < min_req:
+            issues.append(f"Has {len(mermaids)} Mermaid diagrams; expected >= {min_req}.")
+        citations = re.findall(r"^Sources:\s*.+$", body, flags=re.M)
+        total_citations += len(citations)
+        if not citations:
+            issues.append("Missing `Sources: [file:start-end]()` citation lines.")
+        if "## Dynamic Knowledge Links" not in body:
+            issues.append("Missing `## Dynamic Knowledge Links` section (run `build --enrich-only`).")
+        if issues:
+            page_issues.append({"page": pid, "issues": issues})
+
+    passed = (
+        len(page_issues) == 0
+        and len(lint_res["broken_links"]) == 0
+        and len(lint_res["orphans"]) == 0
+        and checked == len(outline.get("pages", []))
+    )
+    return {
+        "passed": passed,
+        "pages_checked": checked,
+        "total_mermaid_diagrams": total_mermaid,
+        "total_source_citation_lines": total_citations,
+        "broken_links": lint_res["broken_links"],
+        "orphans": lint_res["orphans"],
+        "page_issues": page_issues,
     }
